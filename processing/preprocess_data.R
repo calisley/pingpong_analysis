@@ -135,7 +135,7 @@ read.csv(
   path(ROOT,"data","raw","airtable","College Study Spring 2024 Students.csv")
 ) %>% transmute(
   student_id = ID,
-  pretest_ids = PreAssessment.QUALTRICS.Response.IDs.,
+  pretest_ids = PreAssessment.QUALTRICS.Response.IDs,
   posttest_ids = PostAssessment.QUALTRICS.Response.IDs,
   all_class_ids = All.Classes,
   pp_classes = PingPong.Classes
@@ -144,7 +144,7 @@ read.csv(
 
 ############################### Pre-Test #######################################
 
-read.csv(
+pretest<-read.csv(
   path(ROOT,"data","raw","qualtrics","pre-assessment.csv")
 ) %>% transmute(
   response_id = ResponseId,
@@ -280,5 +280,144 @@ read.csv(
     content = Content
   ) %>%
   saveRDS(path(ROOT,"data","generated","threads.rds"))
+
+############################## Post-Tests ######################################
+
+input_dir <- path(ROOT, "data", "raw", "qualtrics", "post")
+
+# List all posttest files
+files <- dir_ls(input_dir, glob = "*.csv")
+
+# Function to process a single file
+process_post_file <- function(file) {
+  raw <- read.csv(file)
+  
+  # Extract question texts from row 1
+  question_texts <- as.character(raw[1, paste0("A", 1:10)])
+  names(question_texts) <- paste0("q", 1:10, "_text")
+  
+  # Drop metadata rows
+  raw <- raw[-c(1, 2), ]
+  
+  # Proceed only if there's real data
+  if (nrow(raw) == 0) return(NULL)
+  
+  raw %>%
+    mutate(across(contains("Click"), as.numeric),
+           across(contains("Submit"), as.numeric)) %>%
+    transmute(
+      response_id = ResponseId,
+      airtable_class_id = pp_airtable_class_RID,
+      airtable_student_id = X__js_airtable_student_RID,
+      pp_class_id = pp_class_id,
+      class_name = pp_class_name,
+      treated = pp_randomization == "Treatment",
+      
+      q1 = A1, q2 = A2, q3 = A3, q4 = A4, q5 = A5,
+      q6 = A6, q7 = A7, q8 = A8, q9 = A9, q10 = A10,
+      
+      q1_text = question_texts[["q1_text"]],
+      q2_text = question_texts[["q2_text"]],
+      q3_text = question_texts[["q3_text"]],
+      q4_text = question_texts[["q4_text"]],
+      q5_text = question_texts[["q5_text"]],
+      q6_text = question_texts[["q6_text"]],
+      q7_text = question_texts[["q7_text"]],
+      q8_text = question_texts[["q8_text"]],
+      q9_text = question_texts[["q9_text"]],
+      q10_text = question_texts[["q10_text"]],
+      
+      enjoy_course = factor(AQ_1, levels = c("Not at all","Slightly","Moderately","Very much","Extremely")),
+      learn_amount = factor(AQ_2, levels = c("Nothing","A little","A moderate amount", "A substantial amount", "A lot")),
+      sufficient_resources_for_questions = factor(AQ_3, levels = c("Strongly Disagree","Somewhat disagree","Neither agree or disagree", "Somewhat agree", "Strongly agree")),
+      how_often_used_gen_ai = factor(AQ_5, levels = c("Never","Once or twice throughout the course","A few times per month","Every week","Daily")),
+      see_more_approved_gen_ai = factor(AQ_6, levels = c("Strongly Disagree","Somewhat disagree","Neither agree or disagree", "Somewhat agree", "Strongly agree")),
+      pp_satisf = factor(AQ_7, levels = c("Very dissatisfied", "Dissatisfied","Neutral", "Satisfied", "Very Satisfied")),
+      most_helpful_text = AQ_8,
+      least_helpful_text = AQ_9,
+      
+      used_gpt = AQ_4_1 == "ChatGPT",
+      used_pp = AQ_4_2 == "PingPong",
+      used_claude = AQ_4_3 == "Claude",
+      used_perplexity = AQ_4_4 == "Perplexity",
+      used_gemini = AQ_4_5 == "Gemini",
+      used_other = AQ_4_6 == "Other",
+      other_gen_ai_tool = AQ_4_7,
+      
+      q1_first_click = A1T_First.Click,
+      q2_first_click = A2T_First.Click,
+      q3_first_click = A3T_First.Click,
+      q4_first_click = A4T_First.Click,
+      q5_first_click = A5T_First.Click,
+      q6_first_click = A6T_First.Click,
+      q7_first_click = A7T_First.Click,
+      q8_first_click = A8T_First.Click,
+      q9_first_click = A9T_First.Click,
+      q10_first_click = A10T_First.Click,
+      
+      q1_last_click = A1T_Last.Click,
+      q2_last_click = A2T_Last.Click,
+      q3_last_click = A3T_Last.Click,
+      q4_last_click = A4T_Last.Click,
+      q5_last_click = A5T_Last.Click,
+      q6_last_click = A6T_Last.Click,
+      q7_last_click = A7T_Last.Click,
+      q8_last_click = A8T_Last.Click,
+      q9_last_click = A9T_Last.Click,
+      q10_last_click = A10T_Last.Click,
+      
+      q1_page_submit = A1T_Page.Submit,
+      q2_page_submit = A2T_Page.Submit,
+      q3_page_submit = A3T_Page.Submit,
+      q4_page_submit = A4T_Page.Submit,
+      q5_page_submit = A5T_Page.Submit,
+      q6_page_submit = A6T_Page.Submit,
+      q7_page_submit = A7T_Page.Submit,
+      q8_page_submit = A8T_Page.Submit,
+      q9_page_submit = A9T_Page.Submit,
+      q10_page_submit = A10T_Page.Submit,
+      
+      q1_n_clicks = A1T_Click.Count,
+      q2_n_clicks = A2T_Click.Count,
+      q3_n_clicks = A3T_Click.Count,
+      q4_n_clicks = A4T_Click.Count,
+      q5_n_clicks = A5T_Click.Count,
+      q6_n_clicks = A6T_Click.Count,
+      q7_n_clicks = A7T_Click.Count,
+      q8_n_clicks = A8T_Click.Count,
+      q9_n_clicks = A9T_Click.Count,
+      q10_n_clicks = A10T_Click.Count,
+      
+      q1_time_spent_clicks = A1T_Last.Click - A1T_First.Click,
+      q2_time_spent_clicks = A2T_Last.Click - A2T_First.Click,
+      q3_time_spent_clicks = A3T_Last.Click - A3T_First.Click,
+      q4_time_spent_clicks = A4T_Last.Click - A4T_First.Click,
+      q5_time_spent_clicks = A5T_Last.Click - A5T_First.Click,
+      q6_time_spent_clicks = A6T_Last.Click - A6T_First.Click,
+      q7_time_spent_clicks = A7T_Last.Click - A7T_First.Click,
+      q8_time_spent_clicks = A8T_Last.Click - A8T_First.Click,
+      q9_time_spent_clicks = A9T_Last.Click - A9T_First.Click,
+      q10_time_spent_clicks = A10T_Last.Click - A10T_First.Click,
+      
+      q1_time_spent_submit = A1T_Page.Submit - A1T_First.Click,
+      q2_time_spent_submit = A2T_Page.Submit - A2T_First.Click,
+      q3_time_spent_submit = A3T_Page.Submit - A3T_First.Click,
+      q4_time_spent_submit = A4T_Page.Submit - A4T_First.Click,
+      q5_time_spent_submit = A5T_Page.Submit - A5T_First.Click,
+      q6_time_spent_submit = A6T_Page.Submit - A6T_First.Click,
+      q7_time_spent_submit = A7T_Page.Submit - A7T_First.Click,
+      q8_time_spent_submit = A8T_Page.Submit - A8T_First.Click,
+      q9_time_spent_submit = A9T_Page.Submit - A9T_First.Click,
+      q10_time_spent_submit = A10T_Page.Submit - A10T_First.Click
+    )
+}
+
+# Process and bind all results
+posttest <- map_dfr(files, process_post_file)
+
+# Save
+saveRDS(posttest, path(ROOT, "data", "generated", "posttest.rds"))
+
+################################################################################
 
   
