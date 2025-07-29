@@ -2,7 +2,6 @@
 # -------------------------------------------------------------
 
 # 0. Load libraries
-library(rstan)
 library(here)
 library(ggplot2)
 library(stringr)
@@ -15,8 +14,6 @@ library(cmdstanr)
 library(posterior)
 library(bayesplot)
 library(tidyverse)
-rstan_options(auto_write = TRUE)
-options(mc.cores = parallel::detectCores())
 
 # irt_model.R -------------------------------------------------------------
 
@@ -75,7 +72,7 @@ long_df <- bind_rows(full_df, pretest_filtered) %>%
   ungroup() %>%
   mutate(
     question_id_factor = as.integer(factor(question_id)),
-    student_id_factor  = as.integer(factor(paste0(student_id))),
+    student_id_factor  = as.integer(factor(student_id)),
     class_id_factor    = as.integer(factor(class_id)),
     process            = factor(process, levels = c("pretest", "gan", "stats")),
     process_id         = as.integer(process)
@@ -117,54 +114,57 @@ data {
   int<lower=1> n_items;
   int<lower=1> n_classes;
   int<lower=1> n_process;
-  int<lower=1,upper=n_people>   person[n_obs];
-  int<lower=1,upper=n_items>    item[n_obs];
-  int<lower=1,upper=n_classes>  classes_obs[n_obs];
-  int<lower=1,upper=n_process>  process[n_obs];
-  int<lower=0,upper=1>          response[n_obs];
+
+  // new array syntax
+  array[n_obs] int<lower=1,upper=n_people>   person;
+  array[n_obs] int<lower=1,upper=n_items>    item;
+  array[n_obs] int<lower=1,upper=n_classes>  classes_obs;
+  array[n_obs] int<lower=1,upper=n_process>  process;
+  array[n_obs] int<lower=0,upper=1>          response;
 }
 
 parameters {
   // 1) Global ability mean & its class‐level and person‐level sds
-real      mu_theta;
-real<lower=0> sigma_class;
-real<lower=0> sigma_theta;
+  real      mu_theta;
+  real<lower=0> sigma_class;
+  real<lower=0> sigma_theta;
 
-// 2) Raw effects for partial pooling
-vector[n_classes] mu_class_raw;   // gives m_k = sigma_class * raw
-vector[n_people]  theta_raw;      // gives θ_i = mu_theta + sigma_theta * raw
+  // 2) Raw effects for partial pooling
+  vector[n_classes] mu_class_raw;   // m_k = sigma_class * raw
+  vector[n_people]  theta_raw;      // θ_i = mu_theta + sigma_theta * raw
 
-// 3) Item discrimination hyperpriors & shifts
-real        mu_a;                 // μ_α
-real<lower=0> sigma_a;            // σ_α
-vector[n_process-1] delta_a;      // δ_α for each non‐baseline process
+  // 3) Item discrimination hyperpriors & shifts
+  real        mu_a;
+  real<lower=0> sigma_a;
+  vector[n_process-1] delta_a;
 
-// 4) Item difficulty hyperpriors & shifts
-real        mu_b;                 // μ_β
-real<lower=0> sigma_b;            // σ_β
-vector[n_process-1] delta_b;      // δ_β
+  // 4) Item difficulty hyperpriors & shifts
+  real        mu_b;
+  real<lower=0> sigma_b;
+  vector[n_process-1] delta_b;
 
-// 5) Non‑centered item‐level raw vars
-vector[n_items] log_a_raw;        // for baseline log(α_j)
-vector[n_items] b_raw;            // for baseline β_j
+  // 5) Non‑centered item‐level raw vars
+  vector[n_items] log_a_raw;        
+  vector[n_items] b_raw;            
 }
 
 transformed parameters {
-  // Expand to actual parameters
-  vector[n_classes] m = sigma_class * mu_class_raw;   
-  vector[n_people]  theta_est = mu_theta + sigma_theta * theta_raw;
-  
-  matrix[n_items, n_process] a_proc;
-  matrix[n_items, n_process] b_proc;
-  
-  vector[n_items] log_a     = mu_a + sigma_a * log_a_raw;
-  vector[n_items] b_base    = mu_b + sigma_b * b_raw;
-  
+  // expand to actual parameters
+  vector[n_classes]      m         = sigma_class * mu_class_raw;
+  vector[n_people]       theta_est = mu_theta + sigma_theta * theta_raw;
+
+  // per‐item, per‐process matrices as arrays
+  array[n_items, n_process] real a_proc;
+  array[n_items, n_process] real b_proc;
+
+  vector[n_items] log_a  = mu_a + sigma_a * log_a_raw;
+  vector[n_items] b_base = mu_b + sigma_b * b_raw;
+
   for (j in 1:n_items) {
-    // baseline (process=1)
+    // baseline process = 1
     a_proc[j,1] = exp(log_a[j]);
     b_proc[j,1] = b_base[j];
-    // shifted for other processes
+    // other processes
     for (p in 2:n_process) {
       a_proc[j,p] = exp(log_a[j] + delta_a[p-1]);
       b_proc[j,p] = b_base[j] + delta_b[p-1];
@@ -173,33 +173,32 @@ transformed parameters {
 }
 
 model {
-  // — Priors on variance parameters (half‑Cauchy(0,5), since lower bound is 0)
+  // — Priors on variance scales (half‑Cauchy)
   sigma_class ~ cauchy(0, 5);
   sigma_theta ~ cauchy(0, 5);
   sigma_a     ~ cauchy(0, 5);
   sigma_b     ~ cauchy(0, 5);
-  
-  // — Priors on means and raw effects
-  mu_theta    ~ normal(0, 1);
-  mu_a        ~ normal(0, 1);
-  mu_b        ~ normal(0, 1);
-  
+
+  // — Priors on means
+  mu_theta ~ normal(0, 1);
+  mu_a     ~ normal(0, 1);
+  mu_b     ~ normal(0, 1);
+
+  // — Non‑centered raw priors
   mu_class_raw ~ normal(0, 1);
   theta_raw    ~ normal(0, 1);
-  
-  delta_a     ~ normal(0, 1);
-  delta_b     ~ normal(0, 1);
-  
-  log_a_raw   ~ normal(0, 1);
-  b_raw       ~ normal(0, 1);
-  
+  delta_a      ~ normal(0, 1);
+  delta_b      ~ normal(0, 1);
+  log_a_raw    ~ normal(0, 1);
+  b_raw        ~ normal(0, 1);
+
   // — Likelihood
   for (n in 1:n_obs) {
     int i = person[n];
     int j = item[n];
     int k = classes_obs[n];
     int p = process[n];
-    real eta = a_proc[j,p] * ((theta_est[i] + m[k]) - b_proc[j,p]);
+    real eta = a_proc[j,p] * ( (theta_est[i] + m[k]) - b_proc[j,p] );
     response[n] ~ bernoulli_logit(eta);
   }
 }
@@ -229,3 +228,8 @@ summary_df <- fit_cm$summary()
 
 # 6. Save the fitted object
 fit_cm$save_object("models/paper_model_trees_cmdstanr.rds")
+
+
+
+
+
