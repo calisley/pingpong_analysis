@@ -2,7 +2,6 @@
 # -------------------------------------------------------------
 
 # 0. Load libraries
-library(rstan)
 library(here)
 library(ggplot2)
 library(stringr)
@@ -12,10 +11,7 @@ library(posterior)
 library(bayesplot)
 library(tidyverse)
 
-rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
-
-
 
 stan_data<-read_rds(here("data","clean","irt", "stan_data.rds"))
 
@@ -45,7 +41,8 @@ parameters {
   // --- raw (unscaled) parameters for items
   vector[n_items] log_a_raw;     // raw draws for log‑discrimination
   vector[n_items] b_raw;         // raw draws for difficulty
-
+  vector<lower=0, upper=0.35>[n_items] c;  // guessing parameter per item
+  
   // --- person abilities, directly on the θ scale
   vector[n_people] theta;        // each ~ Normal(0,1)
 }
@@ -53,11 +50,13 @@ parameters {
 transformed parameters {
   vector[n_items] a;             // discrimination parameters
   vector[n_items] b;             // difficulty parameters
-
+  vector[n_items] c;             // fixed guessing parameter (0.25)
+  
   // scale item parameters
   for (j in 1:n_items) {
     a[j] = exp(mu_a + sigma_a * log_a_raw[j]);
     b[j] = mu_b + sigma_b * b_raw[j];
+    c[j] = 0.25;  // ← fixed value
   }
   
 }
@@ -79,17 +78,18 @@ model {
 
   // Likelihood
   {
-    vector[n_obs] eta;
-    eta = a[item] .* (theta[person] - b[item]);
-    response ~ bernoulli_logit(eta);
+    vector[n_obs] eta = a[item] .* (theta[person] - b[item]);
+    vector[n_obs] logistic_part = inv_logit(eta);
+    vector[n_obs] p = c[item] + (1 - c[item]) .* logistic_part;
+    response ~ bernoulli(p);
   }
-  
 }
 
 generated quantities {
-  vector[n_obs] p;            // predicted probability for each response
-  for (i in 1:n_obs) {
-    p[i] = inv_logit( a[item[i]] * (theta[person[i]] - b[item[i]]) );
+  vector[n_obs] p;
+  for (n in 1:n_obs) {
+    real eta = a[item[n]] * (theta[person[n]] - b[item[n]]);
+    p[n] = 0.25 + 0.75 * inv_logit(eta);  // shortcut since c = 0.25
   }
 }
 "
@@ -104,15 +104,15 @@ mod <- cmdstan_model(stan_file)
 fit_cm <- mod$sample(
   data     = stan_data,
   seed     = 2025,
-  chains   = 8,
-  parallel_chains = 8,
+  chains   = 4,
+  parallel_chains = 4,
   iter_warmup     = 500,
-  iter_sampling   = 500,         # 2000 total as before
+  iter_sampling   = 1000,         
   adapt_delta     = 0.95,
   max_treedepth   = 15,
-  refresh         = 10           # print progress every 250 iters
+  refresh         = 20           
 )
 
 # 6. Save the fitted object
-fit_cm$save_object(here("models","irt_model.rds"))
+fit_cm$save_object(here("models","irt_model_3PL_constra.rds"))
 
